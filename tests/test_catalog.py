@@ -80,3 +80,60 @@ def test_fts_database_triggers(client):
     with Session(client.app.state.engine) as s:
         s.delete(s.get(RepositoryAnnotation,1));s.commit()
     assert client.get('/api/repositories?q=temporaryword').json()['total'] == 0
+
+
+def test_distinct_commit_activity_dates_and_sorting(client):
+    engine = client.app.state.engine
+    snapshot = [entry(), entry(2), entry(3)]
+    for item in snapshot:
+        item['repo']['pushed_at'] = '2024-08-19T14:03:04Z'
+    apply_snapshot(engine, snapshot, None, ACCOUNT, {
+        1: ('2016-11-17T21:30:21Z', 'master'),
+        2: ('2025-01-01T00:00:00Z', 'main'),
+        3: (None, None),
+    })
+    for direction, expected in [('asc', [1, 2, 3]), ('desc', [2, 1, 3])]:
+        data = client.get(f'/api/repositories?sort=last_commit_at&direction={direction}').json()
+        assert [repo['id'] for repo in data['items']] == expected
+    repo = client.get('/api/repositories/1').json()
+    assert repo['last_commit_at'] == '2016-11-17T21:30:21Z'
+    assert repo['pushed_at'] == '2024-08-19T14:03:04Z'
+    assert repo['default_branch'] == 'master'
+
+
+def test_existing_catalog_upgrade_preserves_data(client):
+    from starshelf.db import initialize
+    engine = client.app.state.engine
+    client.patch('/api/repositories/1/annotation', json={'personal_notes': 'Migration keeps notes'})
+    with engine.begin() as connection:
+        connection.exec_driver_sql('DROP INDEX ix_repository_last_commit_at')
+        connection.exec_driver_sql('ALTER TABLE repository DROP COLUMN last_commit_at')
+        connection.exec_driver_sql('ALTER TABLE repository DROP COLUMN default_branch')
+    initialize(engine)
+    initialize(engine)  # The upgrade must also be safe on subsequent startups.
+    assert client.get('/api/repositories/1').json()['last_commit_at'] is None
+    assert client.get('/api/repositories/1').json()['annotation']['personal_notes'] == 'Migration keeps notes'
+    assert client.get('/api/repositories?q=Migration').json()['total'] == 1
+    with engine.connect() as connection:
+        indexes = {row[1] for row in connection.exec_driver_sql('PRAGMA index_list(repository)')}
+        assert 'ix_repository_last_commit_at' in indexes
+
+
+def test_owner_filter_and_other_repository_count(client):
+    apply_snapshot(client.app.state.engine, [entry(), entry(2, 'Demo/beta'),
+        entry(3, 'demo-tools/third'), entry(4, 'demo/old'), entry(5, 'different/fifth')], [], ACCOUNT)
+    with Session(client.app.state.engine) as session:
+        repo = session.get(Repository, 4)
+        repo.is_starred = False
+        session.add(repo)
+        session.commit()
+    assert client.get('/api/repositories/1').json()['other_owner_repositories_count'] == 2
+    assert client.get('/api/repositories/4').json()['other_owner_repositories_count'] == 2
+    assert client.get('/api/repositories/5').json()['other_owner_repositories_count'] == 0
+    data = client.get('/api/repositories?owner=DEMO&scope=all&sort=name&direction=asc&per_page=2').json()
+    assert data['total'] == 3 and [repo['id'] for repo in data['items']] == [1, 2]
+    assert client.get('/api/repositories?owner=demo&scope=all&sort=name&direction=asc&page=2&per_page=2').json()['items'][0]['id'] == 4
+    assert client.get('/api/repositories?owner=demo').json()['total'] == 2
+    assert client.get('/api/repositories?owner=demo&q=SQLite&language=Python').json()['total'] == 2
+    assert client.get('/api/repositories?owner=demo-tools').json()['total'] == 1
+    assert client.get('/api/repositories', params={'owner': "demo' OR 1=1 --"}).json()['total'] == 0

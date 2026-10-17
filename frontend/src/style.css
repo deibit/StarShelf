@@ -458,7 +458,7 @@ table {
   width: 100%;
   table-layout: fixed;
   font-size: 11px;
-  min-width: 800px;
+  min-width: 920px;
 }
 thead {
   position: sticky;
@@ -481,11 +481,11 @@ th button {
   font-size: inherit;
 }
 th:first-child {
-  width: 24%;
+  width: 23%;
   padding-left: 25px;
 }
 th:nth-child(2) {
-  width: 28%;
+  width: 23%;
 }
 th:nth-child(3) {
   width: 13%;
@@ -495,8 +495,9 @@ th:nth-child(4) {
   text-align: right;
 }
 th:nth-child(5),
-th:nth-child(6) {
-  width: 13.5%;
+th:nth-child(6),
+th:nth-child(7) {
+  width: 11%;
 }
 td {
   border-bottom: 1px solid var(--border);
@@ -698,6 +699,22 @@ tbody tr.selected td:first-child {
   font-weight: 600;
   overflow-wrap: anywhere;
   margin: 0 0 12px;
+}
+.owner-repositories-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--accent);
+  font-size: 11px;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 .detail-description {
   font-size: 12px;

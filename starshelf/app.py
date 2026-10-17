@@ -108,16 +108,17 @@ def create_app(db_path=None, github_factory=None):
         return {"status": "ok"}
 
     @app.get("/api/repositories")
-    def repositories(q: str = Query("", max_length=500), language: str | None = None, topic: str | None = None,
+    def repositories(q: str = Query("", max_length=500), owner: str | None = Query(None, max_length=100),
+        language: str | None = None, topic: str | None = None,
         review_status: ReviewStatus | None = None, list_id: str | None = None, unclassified: bool = False,
         archived: bool | None = None, starred: bool | None = True,
         scope: Literal["starred", "unstarred", "all"] | None = None,
-        sort: Literal["name", "stars", "starred_at", "pushed_at", "updated_at", "relevance"] = "starred_at",
+        sort: Literal["name", "stars", "starred_at", "pushed_at", "last_commit_at", "updated_at", "relevance"] = "starred_at",
         direction: Literal["asc", "desc"] = "desc", page: int = Query(1, ge=1, le=1_000_000),
         per_page: int = Query(50, ge=1, le=100)):
         if scope:
             starred = {"starred": True, "unstarred": False, "all": None}[scope]
-        return listing(engine, q=q, language=language, topic=topic, review_status=review_status,
+        return listing(engine, q=q, owner=owner, language=language, topic=topic, review_status=review_status,
             list_id=list_id, unclassified=unclassified, archived=archived, starred=starred,
             sort=sort, direction=direction, page=page, per_page=per_page)
 

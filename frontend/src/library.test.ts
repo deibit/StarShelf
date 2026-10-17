@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   defaults,
+  ownerView,
   parseView,
   viewQuery,
   nextIndex,
@@ -53,5 +54,52 @@ describe("keyboard navigation", () => {
     expect(safeUrl("https://github.com/vuejs/core")).toBe(
       "https://github.com/vuejs/core",
     );
+  });
+});
+
+describe("activity date sorting", () => {
+  it("preserves independent commit and activity sorts in bookmarked views", () => {
+    for (const sort of ["last_commit_at", "pushed_at"]) {
+      const view = { ...defaults, sort, direction: "asc", page: 3 };
+      expect(parseView(viewQuery(view))).toEqual(view);
+    }
+  });
+});
+
+describe("owner navigation", () => {
+  it("shows the whole owner's local collection and resets conflicting filters and page", () => {
+    const current = {
+      ...defaults,
+      q: "unrelated",
+      owner: "old",
+      list_id: "L1",
+      language: "Rust",
+      review_status: "reviewed",
+      archived: "true",
+      page: 5,
+      sort: "name",
+      direction: "asc",
+    };
+    const next = ownerView(current, "octocat");
+    expect(next).toEqual({
+      ...defaults,
+      owner: "octocat",
+      scope: "all",
+      sort: "name",
+      direction: "asc",
+    });
+    expect(parseView(viewQuery(next))).toEqual(next);
+    expect(current.q).toBe("unrelated");
+  });
+  it("combines owner with other filters in a bookmarked URL", () => {
+    const view = {
+      ...defaults,
+      owner: "VueJS",
+      language: "TypeScript",
+      topic: "frontend",
+      page: 2,
+    };
+    expect(parseView(viewQuery(view))).toEqual(view);
+    expect(viewQuery({ ...view, owner: "" })).not.toContain("owner=");
   });
 });

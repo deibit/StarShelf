@@ -29,6 +29,8 @@ class Repository(SQLModel, table=True):
     created_at: str | None = None
     updated_at: str | None = Field(default=None, index=True)
     pushed_at: str | None = Field(default=None, index=True)
+    last_commit_at: str | None = Field(default=None, index=True)
+    default_branch: str | None = None
     starred_at: str | None = Field(default=None, index=True)
     last_synced_at: str = Field(default_factory=now)
     is_starred: bool = Field(default=True, index=True)

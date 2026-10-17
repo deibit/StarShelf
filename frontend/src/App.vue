@@ -14,6 +14,7 @@ import {
   defaults,
   parseView,
   viewQuery,
+  ownerView,
   isTyping,
   nextIndex,
   safeUrl,
@@ -92,6 +93,7 @@ const title = computed(
 const activeFilters = computed(
   () =>
     !!(
+      view.owner ||
       view.language ||
       view.topic ||
       view.review_status ||
@@ -211,6 +213,11 @@ function library(scope = "starred", unclassified = false, list_id = "") {
   view.unclassified = unclassified;
   view.list_id = list_id;
   view.page = 1;
+}
+function showOwner() {
+  if (!selected.value) return;
+  Object.assign(view, ownerView(view, selected.value.owner));
+  search.value = "";
 }
 function clearFilters() {
   Object.assign(view, defaults);
@@ -684,7 +691,8 @@ onUnmounted(() => {
             <option value="starred_at">Date starred</option>
             <option value="name">Name</option>
             <option value="stars">Stars</option>
-            <option value="pushed_at">Last push</option>
+            <option value="last_commit_at">Last commit</option>
+            <option value="pushed_at">Last activity</option>
             <option value="updated_at">Last update</option>
             <option value="relevance">Search relevance</option>
           </select></label
@@ -699,9 +707,16 @@ onUnmounted(() => {
         </button>
       </div>
       <div
-        v-if="view.review_status || view.list_id || view.language"
+        v-if="view.owner || view.review_status || view.list_id || view.language"
         class="filter-chips"
       >
+        <button
+          v-if="view.owner"
+          @click="setFilter('owner', '')"
+          aria-label="Remove owner filter"
+        >
+          Owner: {{ view.owner }} ×
+        </button>
         <button v-if="view.list_id" @click="setFilter('list_id', '')">
           List: {{ title }} ×</button
         ><button
@@ -763,7 +778,16 @@ onUnmounted(() => {
                   }}
                 </button>
               </th>
-              <th><button @click="sortBy('pushed_at')">Last push</button></th>
+              <th
+                title="Committer date of the latest commit on the default branch; other branches are not included."
+              >
+                <button @click="sortBy('last_commit_at')">Last commit</button>
+              </th>
+              <th
+                title="GitHub repository push timestamp (pushed_at). May reflect PR-related Git activity; not a complete history of issues or comments."
+              >
+                <button @click="sortBy('pushed_at')">Last activity</button>
+              </th>
               <th><button @click="sortBy('starred_at')">Starred</button></th>
             </tr>
           </thead>
@@ -798,6 +822,16 @@ onUnmounted(() => {
                 >
               </td>
               <td class="numeric">{{ number(repo.stars_count) }}</td>
+              <td
+                class="date-cell"
+                :title="
+                  repo.default_branch
+                    ? 'Latest commit on ' + repo.default_branch
+                    : 'Unavailable or not yet synced'
+                "
+              >
+                {{ date(repo.last_commit_at) }}
+              </td>
               <td class="date-cell">{{ date(repo.pushed_at) }}</td>
               <td class="date-cell">{{ date(repo.starred_at) }}</td>
             </tr>
@@ -873,6 +907,20 @@ onUnmounted(() => {
       <div class="inspector-body">
         <div class="detail-owner">{{ selected.owner }} /</div>
         <h2>{{ selected.name }}</h2>
+        <button
+          class="owner-repositories-button"
+          :disabled="selected.other_owner_repositories_count === 0"
+          title="Show all repositories from this owner in your local catalog, including previously starred repositories. Other filters will be cleared."
+          @click="showOwner"
+        >
+          {{ selected.other_owner_repositories_count }} other
+          {{
+            selected.other_owner_repositories_count === 1
+              ? "repository"
+              : "repositories"
+          }}
+          by {{ selected.owner }} <span aria-hidden="true">→</span>
+        </button>
         <div class="badges">
           <span v-if="selected.archived">Archived</span
           ><span v-if="selected.disabled">Disabled</span
@@ -921,7 +969,30 @@ onUnmounted(() => {
             </dd>
           </div>
           <div>
-            <dt>Last push</dt>
+            <dt
+              title="Committer date at the tip of the default branch, not the time it was pushed."
+            >
+              Last commit
+            </dt>
+            <dd
+              :title="
+                selected.default_branch
+                  ? 'Default branch: ' + selected.default_branch
+                  : 'Unavailable or not yet synced'
+              "
+            >
+              {{ date(selected.last_commit_at)
+              }}<span v-if="selected.default_branch">
+                · {{ selected.default_branch }}</span
+              >
+            </dd>
+          </div>
+          <div>
+            <dt
+              title="GitHub pushed_at: may include PR-related Git activity. Not a complete issues/comments activity feed."
+            >
+              Last activity
+            </dt>
             <dd>{{ date(selected.pushed_at) }}</dd>
           </div>
           <div>

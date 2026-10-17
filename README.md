@@ -24,7 +24,7 @@ The SQLite database is persistent at `$XDG_DATA_HOME/starshelf/catalog.db`, defa
 STARSHELF_DB=/absolute/path/to/catalog.db uv run starshelf
 ```
 
-The application creates its data directory. Keep the database on a local filesystem. A running catalog uses SQLite WAL sidecar files; use annotation export for a portable notes backup, or stop the app before copying the entire database. The current schema is an initial release, without a migration framework.
+The application creates its data directory. Keep the database on a local filesystem. A running catalog uses SQLite WAL sidecar files; use annotation export for a portable notes backup, or stop the app before copying the entire database. Existing catalogs are upgraded automatically on startup to add nullable commit-date and default-branch fields; notes and other catalog data are preserved.
 
 ## Development
 
@@ -42,8 +42,9 @@ Open the Vite URL, normally http://127.0.0.1:5173. Vite proxies `/api` to FastAP
 
 ## Using the library
 
-- Search uses debounced, case-insensitive FTS5 prefix matching. Terms combine with AND; punctuation is treated as separators. Search defaults to weighted BM25 ranking when starting from the default date sort; choose **Search relevance** to restore it after changing sort, or sort by name, stars, star date, last push, or last update.
+- Search uses debounced, case-insensitive FTS5 prefix matching. Terms combine with AND; punctuation is treated as separators. Search defaults to weighted BM25 ranking when starting from the default date sort; choose **Search relevance** to restore it after changing sort, or sort by name, stars, star date, last commit, last activity, or last update.
 - Combine sidebar lists/review statuses/languages with topic, archived, and starred-status filters. Results are filtered/sorted/paginated on the server, 50 per page. View state is encoded in URL query parameters. Detail selection preserves the view.
+- Repository details show how many **other repositories by the same owner** are in your local catalog, including previously starred repositories. Click that button to show the owner’s whole collection. It clears other filters/search, keeps sorting, and resets pagination. The removable **Owner** filter is stored in the URL and can be combined with other filters afterward. “Owner” means the GitHub user or organization that owns the repository, not its commit authors.
 - Click a row, or use **↑ / ↓**, to open its details. **Enter** focuses the inspector; **Esc** closes it (or leaves an editable field). **/** or **Cmd/Ctrl+K** focuses search; **O** opens GitHub; **?** shows shortcut help. Shortcuts do not capture typing in editable controls.
 - Write notes, choose a review status, and click **Save notes**. Unsaved edits prompt before leaving the selected repository. Notes belong to StarShelf and survive every sync and unstar.
 - **Remove GitHub star** requires confirmation. **Star again on GitHub** restores a previously starred repository. Both need internet and verified CLI OAuth scopes. Local changes happen only after GitHub confirms success. No operation is queued for later execution.
@@ -85,3 +86,12 @@ Backend tests use temporary databases and mocked GitHub transports. They cover p
 - `frontend/src/`: Vue explorer, URL/keyboard helpers, styles and tests.
 
 Dependencies are deliberately small: httpx handles GitHub requests; SQLModel/FastAPI provide validated persistence/API; Uvicorn serves the app; marked + DOMPurify safely render optional READMEs. Vue native reactivity manages state. No external search service or state library is used.
+
+## Commit and activity dates
+
+The table and inspector show two independent dates, each sortable:
+
+- **Last commit** is the committer date of the commit at the tip of the repository’s **default branch**. The inspector shows the branch name. It does not measure development on other branches or the time a commit was pushed.
+- **Last activity** is GitHub’s repository `pushed_at` timestamp, previously labeled “Last push.” It may reflect PR-related Git activity even when the default branch has not changed. It is **not** a complete history of issues, comments, or reviews. The separate “Last update” field remains repository metadata’s `updated_at`.
+
+Default-branch commit dates are fetched during manual sync using GraphQL batches of 50 repositories. This avoids one REST request per repository. Empty repositories or missing default branches show “—”; existing catalogs show “—” until their next successful commit-date sync. If GraphQL access fails, starred sync still succeeds with a warning and cached commit dates remain intact. No push or update timestamp is substituted for an unknown commit date.

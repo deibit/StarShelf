@@ -81,6 +81,7 @@ def test_failed_sync_is_atomic_and_lists_fallback(tmp_path):
         state=s.get(SyncState,1);assert state.last_sync_status=='error';assert state.number_of_repositories==1
     class ListsUnavailable(Fake):
         async def starred(self,_):return [entry(),entry(2)]
+        async def commit_dates(self, entries, progress):return {}
         async def lists(self,_):raise GitHubError('Unsupported schema')
     run(synchronize(engine,ListsUnavailable()))
     with Session(engine) as s:
@@ -161,3 +162,75 @@ def test_malformed_snapshot_rolls_back_all_changes(tmp_path):
         repo = session.get(Repository, 1)
         assert repo.full_name == 'demo/alpha' and repo.is_starred
         assert session.get(Repository, 2) is None
+
+
+def test_commit_dates_batched_and_empty_default_branch():
+    import json
+    entries = [entry(i) for i in range(1, 53)]
+    for item in entries:
+        item['repo']['node_id'] = f"R_{item['repo']['id']}"
+    sizes = []
+    def handler(request):
+        body = json.loads(request.content)
+        assert 'defaultBranchRef' in body['query'] and 'committedDate' in body['query']
+        ids = body['variables']['ids']
+        sizes.append(len(ids))
+        return httpx.Response(200, json={'data': {'nodes': [
+            {'id': node_id, 'defaultBranchRef': None if node_id == 'R_52' else {
+                'name': 'master', 'target': {'committedDate': '2016-11-17T21:30:21Z'}}}
+            for node_id in ids]}})
+    async def go():
+        async with GitHub('fake', httpx.MockTransport(handler)) as github:
+            dates = await github.commit_dates(entries, lambda *_: None)
+            assert dates[1] == ('2016-11-17T21:30:21Z', 'master')
+            assert dates[52] == (None, None)
+            assert await github.commit_dates([], lambda *_: None) == {}
+    run(go())
+    assert sizes == [50, 2]
+
+
+@pytest.mark.parametrize('payload', [
+    {'errors': [{'type': 'FORBIDDEN'}]},
+    {'data': {'nodes': [None]}},
+])
+def test_commit_dates_reject_unavailable_results(payload):
+    item = entry(); item['repo']['node_id'] = 'R_1'
+    async def go():
+        async with GitHub('fake', httpx.MockTransport(lambda _: httpx.Response(200, json=payload))) as github:
+            with pytest.raises(GitHubError):
+                await github.commit_dates([item], lambda *_: None)
+    run(go())
+
+
+def test_commit_dates_sync_and_failure_preserve_cache(tmp_path):
+    from starshelf.models import Repository, RepositoryAnnotation
+    engine = make_engine(tmp_path / 'dates.db'); initialize(engine)
+    class Fake:
+        async def identity(self): return ACCOUNT
+        async def starred(self, progress):
+            item = entry(); item['repo']['pushed_at'] = '2024-08-19T14:03:04Z'
+            return [item]
+        async def lists(self, progress): return []
+        async def commit_dates(self, entries, progress):
+            return {1: ('2016-11-17T21:30:21Z', 'master')}
+    run(synchronize(engine, Fake()))
+    with Session(engine) as session:
+        repo = session.get(Repository, 1)
+        assert repo.last_commit_at == '2016-11-17T21:30:21Z'
+        assert repo.pushed_at == '2024-08-19T14:03:04Z'
+        session.add(RepositoryAnnotation(repository_id=1, personal_notes='Keep this'))
+        session.commit()
+    class Unavailable(Fake):
+        async def commit_dates(self, entries, progress): raise GitHubError('Rate limited', 429)
+        async def lists(self, progress): raise GitHubError('Lists unavailable')
+    run(synchronize(engine, Unavailable()))
+    with Session(engine) as session:
+        assert session.get(Repository, 1).last_commit_at == '2016-11-17T21:30:21Z'
+        assert session.get(RepositoryAnnotation, 1).personal_notes == 'Keep this'
+        state = session.get(SyncState, 1)
+        assert state.last_sync_status == 'success'
+        assert 'Commit dates unavailable' in state.warning and 'lists unavailable' in state.warning
+    # A successful response with no default branch clears a formerly cached date.
+    apply_snapshot(engine, [entry()], [], ACCOUNT, {1: (None, None)})
+    with Session(engine) as session:
+        assert session.get(Repository, 1).last_commit_at is None

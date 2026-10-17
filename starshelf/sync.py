@@ -23,7 +23,7 @@ def update_state(engine, **fields):
         s.commit()
 
 
-def apply_snapshot(engine, entries, lists, account):
+def apply_snapshot(engine, entries, lists, account, commit_dates=None):
     # All catalog mutations commit together, only after all starred pages succeed.
     with Session(engine) as s:
         state = s.get(SyncState, 1)
@@ -34,6 +34,12 @@ def apply_snapshot(engine, entries, lists, account):
         for entry in entries:
             repo = repository_from_github(entry)
             ids.add(repo.id)
+            if commit_dates is not None and repo.id in commit_dates:
+                repo.last_commit_at, repo.default_branch = commit_dates[repo.id]
+            else:
+                cached = s.get(Repository, repo.id)
+                if cached:
+                    repo.last_commit_at, repo.default_branch = cached.last_commit_at, cached.default_branch
             s.merge(repo)
         s.flush()
         if lists is not None:
@@ -70,12 +76,19 @@ async def synchronize(engine, github):
             if state.account_id and state.account_id != account["id"]:
                 raise GitHubError("Authenticated GitHub account changed. Switch back or use a separate STARSHELF_DB.", 409)
         entries = await github.starred(progress)
+        warnings = []
+        commit_dates = None
+        try:
+            commit_dates = await github.commit_dates(entries, progress)
+        except GitHubError as exc:
+            warnings.append(f"Commit dates unavailable: {exc}")
         lists = None
         try:
             lists = await github.lists(progress)
         except GitHubError as exc:
-            update_state(engine, warning=f"Starred repositories synchronized; lists unavailable: {exc}")
-        apply_snapshot(engine, entries, lists, account)
+            warnings.append(f"Star lists unavailable: {exc}")
+        update_state(engine, warning=" ".join(warnings) or None)
+        apply_snapshot(engine, entries, lists, account, commit_dates)
     except Exception as exc:
         # Never log response bodies, credentials, or exception reprs from network libraries.
         message = str(exc) if isinstance(exc, GitHubError) else "Synchronization failed. Local catalog preserved. Try again."

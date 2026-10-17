@@ -25,6 +25,12 @@ def initialize(engine):
     Path(engine.url.database).parent.mkdir(parents=True, exist_ok=True)
     SQLModel.metadata.create_all(engine)
     with engine.begin() as c:
+        # Additive upgrade for catalogs created before commit dates were cached.
+        columns = {row[1] for row in c.exec_driver_sql("PRAGMA table_info(repository)")}
+        for column in ("last_commit_at", "default_branch"):
+            if column not in columns:
+                c.exec_driver_sql(f"ALTER TABLE repository ADD COLUMN {column} TEXT")
+        c.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_repository_last_commit_at ON repository(last_commit_at)")
         c.exec_driver_sql("""CREATE VIRTUAL TABLE IF NOT EXISTS repository_fts USING fts5(
             full_name, description, topics, primary_language, personal_notes,
             tokenize='unicode61 remove_diacritics 2')""")

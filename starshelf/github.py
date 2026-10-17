@@ -71,14 +71,37 @@ class GitHub:
                 return rows
             page += 1
 
-    async def graphql(self, query, variables):
+    async def graphql(self, query, variables, *, feature="Star Lists"):
         payload = (await self.request("POST", "/graphql", json={"query": query, "variables": variables})).json()
         if payload.get("errors"):
             types = {e.get("type") for e in payload["errors"]}
             if "RATE_LIMITED" in types:
                 raise GitHubError("GitHub GraphQL rate limit reached. Retry later.", 429)
-            raise GitHubError("GitHub Star Lists are unavailable for this token or API schema. Cached lists were preserved.")
+            raise GitHubError(f"GitHub {feature} are unavailable for this token or API schema. Cached data was preserved.")
         return payload["data"]
+
+    async def commit_dates(self, entries, progress):
+        """Fetch default-branch tip dates in batches, without per-repository REST calls."""
+        result = {}
+        for offset in range(0, len(entries), 50):
+            batch = entries[offset:offset + 50]
+            ids = [entry["repo"].get("node_id") for entry in batch]
+            if not all(ids):
+                raise GitHubError("Repository node IDs are missing; commit dates could not be refreshed.")
+            data = await self.graphql("""query($ids:[ID!]!) { nodes(ids:$ids) { ... on Repository {
+                id defaultBranchRef { name target { ... on Commit { committedDate } } }
+            } } }""", {"ids": ids}, feature="commit dates")
+            nodes = {node["id"]: node for node in data["nodes"] if node}
+            for entry, node_id in zip(batch, ids):
+                if node_id not in nodes:
+                    raise GitHubError("A repository became inaccessible; cached commit dates were preserved.")
+                branch = nodes[node_id].get("defaultBranchRef")
+                result[entry["repo"]["id"]] = (
+                    ((branch.get("target") or {}).get("committedDate") if branch else None),
+                    branch["name"] if branch else None,
+                )
+            progress(None, f"Fetching commit dates: {offset + len(batch)} / {len(entries)}")
+        return result
 
     async def lists(self, progress):
         lists = []

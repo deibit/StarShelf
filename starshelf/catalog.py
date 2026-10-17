@@ -1,6 +1,6 @@
 import json
 import re
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlmodel import Session, select
 from .models import Repository, RepositoryAnnotation, StarList, RepositoryStarList
 
@@ -11,7 +11,7 @@ def search_expression(query):
     return " AND ".join('"' + term.replace('"', '""') + '"*' for term in terms)
 
 
-def listing(engine, *, q="", language=None, topic=None, review_status=None,
+def listing(engine, *, q="", owner=None, language=None, topic=None, review_status=None,
             list_id=None, unclassified=False, archived=None, starred=True,
             sort="starred_at", direction="desc", page=1, per_page=50):
     clauses, params = [], {}
@@ -25,6 +25,9 @@ def listing(engine, *, q="", language=None, topic=None, review_status=None,
         if value is not None:
             clauses.append(f"r.{column} = :{column}")
             params[column] = value
+    if owner:
+        clauses.append("r.owner = :owner COLLATE NOCASE")
+        params["owner"] = owner
     if topic:
         clauses.append("EXISTS (SELECT 1 FROM json_each(r.topics) WHERE value=:topic)")
         params["topic"] = topic
@@ -38,8 +41,11 @@ def listing(engine, *, q="", language=None, topic=None, review_status=None,
         clauses.append("NOT EXISTS (SELECT 1 FROM repositorystarlist l WHERE l.repository_id=r.id)")
     where = " AND ".join(clauses) or "1=1"
     orders = {"name": "r.full_name COLLATE NOCASE", "stars": "r.stars_count", "starred_at": "r.starred_at",
-        "pushed_at": "r.pushed_at", "updated_at": "r.updated_at"}
+        "pushed_at": "r.pushed_at", "last_commit_at": "r.last_commit_at", "updated_at": "r.updated_at"}
     order = "bm25(repository_fts,8,3,2,1,4) ASC" if sort == "relevance" and expression else f"{orders.get(sort, 'r.starred_at')} {direction}"
+    if sort == "last_commit_at":
+        # Unknown/empty repositories belong at the end in either direction.
+        order = "r.last_commit_at IS NULL ASC, " + order
     with engine.connect() as c:
         total = c.execute(text(f"SELECT count(*) FROM repository r {join} WHERE {where}"), params).scalar_one()
         params.update(limit=per_page, offset=(page - 1) * per_page)
@@ -57,6 +63,8 @@ def listing(engine, *, q="", language=None, topic=None, review_status=None,
 
 def detail(session: Session, repo: Repository):
     result = repo.model_dump()
+    result["other_owner_repositories_count"] = session.exec(select(func.count()).select_from(Repository).where(
+        Repository.owner.collate("NOCASE") == repo.owner, Repository.id != repo.id)).one()
     annotation = session.get(RepositoryAnnotation, repo.id)
     result["annotation"] = annotation.model_dump() if annotation else {"personal_notes": "", "review_status": "unreviewed"}
     result["lists"] = [item.model_dump() for item in session.exec(select(StarList).join(

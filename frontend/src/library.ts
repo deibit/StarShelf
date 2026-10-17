@@ -2,6 +2,7 @@ export type ReviewStatus =
   "unreviewed" | "reviewed" | "interesting" | "discarded";
 export type ViewState = {
   q: string;
+  owner: string;
   language: string;
   topic: string;
   review_status: string;
@@ -15,6 +16,7 @@ export type ViewState = {
 };
 export const defaults: ViewState = {
   q: "",
+  owner: "",
   language: "",
   topic: "",
   review_status: "",
@@ -31,6 +33,7 @@ export function parseView(search: string): ViewState {
   const state = { ...defaults };
   for (const key of [
     "q",
+    "owner",
     "language",
     "topic",
     "review_status",
@@ -42,6 +45,7 @@ export function parseView(search: string): ViewState {
   ] as const)
     state[key] = params.get(key) ?? defaults[key];
   state.q = state.q.slice(0, 500);
+  state.owner = state.owner.slice(0, 100);
   state.unclassified = params.get("unclassified") === "true";
   state.page = Math.max(
     1,
@@ -55,6 +59,7 @@ export function parseView(search: string): ViewState {
       "stars",
       "starred_at",
       "pushed_at",
+      "last_commit_at",
       "updated_at",
       "relevance",
     ].includes(state.sort)
@@ -77,6 +82,16 @@ export function viewQuery(state: ViewState): string {
     if (state[key] !== defaults[key]) params.set(key, String(state[key]));
   }
   return params.toString();
+}
+export function ownerView(state: ViewState, owner: string): ViewState {
+  // Show the whole local owner's collection so the detail count matches the view.
+  return {
+    ...defaults,
+    owner,
+    scope: "all",
+    sort: state.sort,
+    direction: state.direction,
+  };
 }
 export function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -111,10 +126,13 @@ export interface Repo {
   is_starred: boolean;
   starred_at: string | null;
   pushed_at: string | null;
+  last_commit_at: string | null;
+  default_branch: string | null;
   updated_at: string | null;
   review_status?: ReviewStatus;
 }
 export interface Detail extends Repo {
+  other_owner_repositories_count: number;
   annotation: { personal_notes: string; review_status: ReviewStatus };
   lists: { id: string; name: string }[];
 }
