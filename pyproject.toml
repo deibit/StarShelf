@@ -1,0 +1,19 @@
+[project]
+name = "starshelf"
+version = "0.1.0"
+description = "A local-first explorer for your GitHub stars"
+requires-python = ">=3.12"
+dependencies = ["fastapi>=0.143.3,<0.144", "sqlmodel>=0.0.24,<0.1", "httpx>=0.28,<1", "uvicorn>=0.34,<1"]
+[project.scripts]
+starshelf = "starshelf.__main__:main"
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[tool.hatch.build]
+artifacts = ["starshelf/static/**"]
+[tool.hatch.build.targets.wheel]
+packages = ["starshelf"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
