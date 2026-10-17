@@ -16,6 +16,7 @@ from .models import Repository, RepositoryAnnotation, SyncState, ReviewStatus, n
 from .github import GitHub, GitHubError, cli_token
 from .sync import synchronize, update_state
 from .catalog import listing, detail
+from .logging_config import configure_access_logging
 
 
 class AnnotationPatch(BaseModel):
@@ -49,6 +50,7 @@ def create_app(db_path=None, github_factory=None):
 
     @asynccontextmanager
     async def lifespan(app):
+        configure_access_logging()
         initialize(engine)
         yield
         for task in tasks:

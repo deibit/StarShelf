@@ -38,7 +38,7 @@ uv run uvicorn starshelf.app:app --host 127.0.0.1 --port 8765 --reload
 npm --prefix frontend run dev
 ```
 
-Open the Vite URL, normally http://127.0.0.1:5173. Vite proxies `/api` to FastAPI. No permissive CORS is enabled. The API schema is at http://127.0.0.1:8765/openapi.json; mutation requests require the `X-StarShelf: 1` header. CDN-backed API documentation pages are disabled to keep the application self-contained. Run a single server process/worker for this single-user application; the operation lock and sync task live in that process.
+Open the Vite URL, normally http://127.0.0.1:5173. Vite proxies `/api` to FastAPI. No permissive CORS is enabled. The API schema is at http://127.0.0.1:8765/openapi.json; mutation requests require the `X-StarShelf: 1` header. CDN-backed API documentation pages are disabled to keep the application self-contained. Successful `GET /api/sync/status` polls are omitted from Uvicorn access logs; failed polls and other requests remain visible in both launch modes. Run a single server process/worker for this single-user application; the operation lock and sync task live in that process.
 
 ## Using the library
 
